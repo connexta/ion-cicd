@@ -1,4 +1,10 @@
-# An inline orb for common groups of Gradle commands
+# An Orb is a sharable package of configuration, including executors, commands, and jobs.
+# An Orb is typically authored and published to CircleCI's Orbs Registry, but writing inline Orbs is an easy
+# way to get started testing an Orb as they can be referenced from the existing configuration.
+#
+# This file is an example of an inline orb that groups command Gradle commands into simple named jobs.
+#
+# For further reading, visit the CircleCI Orb Documentation here: https://circleci.com/docs/2.0/creating-orbs/
 orbs:
   connexta-gradle:
     executors:
