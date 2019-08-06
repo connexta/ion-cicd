@@ -1,3 +1,6 @@
+#Base CircleCI template for Maven projects.
+#Defined below are steps for building, unit tests, OWasp, Sonar, and release tag
+
 version: 2.1
 jobs:
   inc_build:
@@ -84,7 +87,7 @@ jobs:
               then
                 git checkout $RELEASE_TAG
               fi
-              mvn -q -B install sonar:sonar -Dsonar.host.url=https://sonarcloud.io -Dsonar.login=$SONAR_TOKEN  -Dsonar.organization=cx -Dsonar.projectKey=$GITHUB_REPONAME -Dsonar.exclusions=$COVERAGE_EXCLUSIONS $DISABLE_DOWNLOAD_PROGRESS_OPTS
+              mvn -q -B install sonar:sonar -Dsonar.host.url=https://sonarcloud.io -Dsonar.login=$SONAR_TOKEN  -Dsonar.organization=cx -Dsonar.projectKey=$GITHUB_REPONAME -Dsonar.exclusions=$COVERAGE_EXCLUSIONS $DISABLE_DOWNLOAD_PROGRESS_OPTS -Dsonar.pullrequest.key=${CIRCLE_PULL_REQUEST##*/} -Dsonar.pullrequest.branch=${CIRCLE_BRANCH} -Dsonar.pullrequest.base=master
             fi
   release_tag:
     docker: *image
@@ -124,8 +127,7 @@ jobs:
 
 workflows:
   version: 2.1
-  nightly:
-
+  default:
     jobs:
       - inc_build
       - test:
