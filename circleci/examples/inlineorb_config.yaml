@@ -1,0 +1,70 @@
+# An inline orb for common groups of Gradle commands
+orbs:
+  connexta-gradle:
+    executors:
+      base-executor:
+        docker:
+          - image: circleci/openjdk:11-jdk
+    commands:
+      build:
+        steps:
+          - checkout
+          - run: ./gradlew clean build -x test
+      test:
+        steps:
+          - checkout
+          - run: ./gradlew clean build
+      dependency-scan:
+        steps:
+          - checkout
+          - run: ./gradlew dependencyCheckAnalyze
+      quality-scan:
+        parameters:
+          sonar_key:
+            type: string
+          sonar_org:
+            type: string
+          sonar_url:
+            type: string
+          sonar_token:
+            type: string
+        steps:
+          - checkout
+          - run: ./gradlew sonarqube -Dsonar.projectKey=<<parameters.sonar_key>> -Dsonar.organization=<<parameters.sonar_org>> -Dsonar.host.url=<<parameters.sonar_url>> -Dsonar.login=<<parameters.sonar_token>> --info
+
+    jobs:
+      full-build:
+        executor: base-executor
+        steps:
+          - build
+          - test
+      full-build-and-scan:
+        parameters:
+          sonar_key:
+            type: string
+          sonar_org:
+            type: string
+          sonar_url:
+            type: string
+          sonar_token:
+            type: string
+        executor: base-executor
+        steps:
+          - build
+          - test
+          - dependency-scan
+          - quality-scan:
+              sonar_key: <<parameters.sonar_key>>
+              sonar_org: <<parameters.sonar_org>>
+              sonar_url: <<parameters.sonar_url>>
+              sonar_token: <<parameters.sonar_token>>
+
+workflows:
+  main:
+    jobs:
+      - connexta-gradle/full-build-and-scan:
+          name: AaronBuildAndScan
+          sonar_key: aaronilovici_circle-test
+          sonar_org: aaronilovici
+          sonar_url: https://sonarcloud.io
+          sonar_token: ${SONAR_TOKEN}
