@@ -3,7 +3,7 @@
 
 version: 2.1
 jobs:
-  inc_build:
+  incremental_build:
     docker: &image
       - image: circleci/openjdk:11-jdk
     steps:
@@ -31,6 +31,35 @@ jobs:
           name: Building
           command: |
             ./gradlew build --info
+      - run:
+          name: Save test results
+          command: |
+            mkdir -p ~/test-results/junit/
+            find . -type f -regex ".*/target/surefire-reports/.*xml" -exec cp {} ~/test-results/junit/ \;
+          when: always
+      - store_test_results:
+          path: ~/test-results
+      - store_artifacts:
+          path: ~/test-results/junit
+  build:
+    docker: *image
+    steps:
+      - run: *env
+      - checkout
+      - run:
+          name: Building
+          command: |
+            ./gradlew clean build
+      - run:
+          name: Save test results
+          command: |
+            mkdir -p ~/test-results/junit/
+            find . -type f -regex ".*/target/surefire-reports/.*xml" -exec cp {} ~/test-results/junit/ \;
+          when: always
+      - store_test_results:
+          path: ~/test-results
+      - store_artifacts:
+          path: ~/test-results/junit
   #Runs OWASP on build
   owasp:
     docker: *image
@@ -88,18 +117,40 @@ jobs:
             ./gradlew javadoc:aggregate -B -DskipTests -nsu $DISABLE_DOWNLOAD_PROGRESS_OPTS
             if [ $RELEASE = true]
             then
-              ./gradlew publish -B -DskipTests -DretryFailedDeploymentCount=10 -nsu $DISABLE_DOWNLOAD_PROGRESS_OPTS -Dgpg.secretKeyring=$ION_GPG_KEYRING -Dgpg.publicKeyring=$ION_GPG_KEYRING -Dgpg.passphraseServerId=\"ion-signing\"
+              ./gradlew deploy -B -DskipTests -DretryFailedDeploymentCount=10 -nsu $DISABLE_DOWNLOAD_PROGRESS_OPTS -Dgpg.secretKeyring=$ION_GPG_KEYRING -Dgpg.publicKeyring=$ION_GPG_KEYRING -Dgpg.passphraseServerId=\"ion-signing\"
             else
-              ./gradlew publish -B -DskipTests -DretryFailedDeploymentCount=10 -nsu $DISABLE_DOWNLOAD_PROGRESS_OPTS
+              ./gradlew deploy -B -DskipTests -DretryFailedDeploymentCount=10 -nsu $DISABLE_DOWNLOAD_PROGRESS_OPTS
             fi
 workflows:
   version: 2.1
   default:
+    triggers:
+      filters:
+        branches:
+          ignore:
+            - master
     jobs:
-      - inc_build
+      - incremental_build
       - owasp:
           requires:
-            - inc_build
+            - incremental_build
+      - sonar:
+          requires:
+            - owasp
+      - release_tag:
+          requires:
+            - sonar
+  master:
+    triggers:
+      filters:
+        branches:
+          only:
+            - master
+    jobs:
+      - build
+      - owasp:
+          requires:
+            - build
       - sonar:
           requires:
             - owasp
