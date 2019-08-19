@@ -115,6 +115,11 @@ jobs:
               chmod +x run_ssh.sh
               git push ssh-origin HEAD:$CIRCLE_BRANCH && git push ssh-origin $RELEASE_TAG
             fi
+
+
+
+
+
   deploy:
     docker: *image
     steps:
