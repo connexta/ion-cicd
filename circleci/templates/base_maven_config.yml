@@ -3,7 +3,7 @@
 
 version: 2.1
 jobs:
-  inc_build:
+  incremental_build:
     docker: &image
       - image: circleci/openjdk:11-jdk
     steps:
@@ -29,8 +29,18 @@ jobs:
           command: |
             mvn install -B -DskipTests $DISABLE_DOWNLOAD_PROGRESS_OPTS
             mvn clean install -B -Dgib.enabled=true -Dgib.referenceBranch=/refs/remotes/origin/$CHANGE_TARGET $DISABLE_DOWNLOAD_PROGRESS_OPTS
+      - run:
+          name: Save test results
+          command: |
+            mkdir -p ~/test-results/junit/
+            find . -type f -regex ".*/target/surefire-reports/.*xml" -exec cp {} ~/test-results/junit/ \;
+          when: always
+      - store_test_results:
+          path: ~/test-results
+      - store_artifacts:
+          path: ~/test-results/junit
 
-  test:
+  build:
     docker: *image
     steps:
       - run: *env
@@ -128,14 +138,33 @@ jobs:
 workflows:
   version: 2.1
   default:
+    triggers:
+      filters:
+        branches:
+          ignore:
+            - master
     jobs:
-      - inc_build
-      - test:
-          requires:
-            - inc_build
+      - incremental_build
       - owasp:
           requires:
-            - test
+            - incremental_build
+      - sonar:
+          requires:
+            - owasp
+      - release_tag:
+          requires:
+            - sonar
+  master:
+    triggers:
+      filters:
+        branches:
+          only:
+            - master
+    jobs:
+      - build
+      - owasp:
+          requires:
+            - build
       - sonar:
           requires:
             - owasp
