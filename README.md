@@ -1,3 +1,4 @@
-# Template Workflow Sample
+# Ion CI/CD
 
-This branch contains a longer sample workflow for reference and overall example of how we want flows to happen.
+This repository will hold templates and examples for relevant build tools used at Connexta. 
+
