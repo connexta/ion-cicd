@@ -1,0 +1,76 @@
+# An Orb is a sharable package of configuration, including executors, commands, and jobs.
+# An Orb is typically authored and published to CircleCI's Orbs Registry, but writing inline Orbs is an easy
+# way to get started testing an Orb as they can be referenced from the existing configuration.
+#
+# This file is an example of an inline orb that groups command Gradle commands into simple named jobs.
+#
+# For further reading, visit the CircleCI Orb Documentation here: https://circleci.com/docs/2.0/creating-orbs/
+orbs:
+  connexta-gradle:
+    executors:
+      base-executor:
+        docker:
+          - image: circleci/openjdk:11-jdk
+    commands:
+      build:
+        steps:
+          - checkout
+          - run: ./gradlew clean build -x test
+      test:
+        steps:
+          - checkout
+          - run: ./gradlew clean build
+      dependency-scan:
+        steps:
+          - checkout
+          - run: ./gradlew dependencyCheckAnalyze
+      quality-scan:
+        parameters:
+          sonar_key:
+            type: string
+          sonar_org:
+            type: string
+          sonar_url:
+            type: string
+          sonar_token:
+            type: string
+        steps:
+          - checkout
+          - run: ./gradlew sonarqube -Dsonar.projectKey=<<parameters.sonar_key>> -Dsonar.organization=<<parameters.sonar_org>> -Dsonar.host.url=<<parameters.sonar_url>> -Dsonar.login=<<parameters.sonar_token>> --info
+
+    jobs:
+      full-build:
+        executor: base-executor
+        steps:
+          - build
+          - test
+      full-build-and-scan:
+        parameters:
+          sonar_key:
+            type: string
+          sonar_org:
+            type: string
+          sonar_url:
+            type: string
+          sonar_token:
+            type: string
+        executor: base-executor
+        steps:
+          - build
+          - test
+          - dependency-scan
+          - quality-scan:
+              sonar_key: <<parameters.sonar_key>>
+              sonar_org: <<parameters.sonar_org>>
+              sonar_url: <<parameters.sonar_url>>
+              sonar_token: <<parameters.sonar_token>>
+
+workflows:
+  main:
+    jobs:
+      - connexta-gradle/full-build-and-scan:
+          name: AaronBuildAndScan
+          sonar_key: aaronilovici_circle-test
+          sonar_org: aaronilovici
+          sonar_url: https://sonarcloud.io
+          sonar_token: ${SONAR_TOKEN}
