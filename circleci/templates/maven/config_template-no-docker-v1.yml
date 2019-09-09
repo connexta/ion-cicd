@@ -18,7 +18,7 @@ orbs:
   snyk: snyk/snyk@0.0.8
 
 jobs:
-  # Execute compilation and library linkage as first step
+# Execute compilation and library linkage as first step
   Build:
     docker: &image # The '&image' setups up a reference tag to be used by '*image' (see unit tests)
       - image: circleci/openjdk:11-jdk
@@ -41,7 +41,7 @@ jobs:
             if [ $RELEASE != true ]
               mvn install -B -DskipTests $DISABLE_DOWNLOAD_PROGRESS_OPTS
             fi
-  # Execute unit tests separate from other executions to track performance
+# Execute unit tests separate from other executions to track performance
   Unit Testing:
     docker: *image
     steps:
@@ -51,7 +51,7 @@ jobs:
           name: Maven test phase
           command: |
             mvn test -B $DISABLE_DOWNLOAD_PROGRESS_OPTS
-  # Security-Dependency Scanning
+# Security-Dependency Scanning
   Dependency Scan:
     docker: *image
     steps:
@@ -61,7 +61,7 @@ jobs:
           monitor-on-build: false
           severity-threshold: high # Set the failure threshold to high
           token-variable: SNYK_TOKEN #This Token is an environment variable -- API Token from Snyk
-  # Quality-Code Scanning -- Call out what flavor (Sonar presently) and indicate Code Quality Scan
+# Quality-Code Scanning -- Call out what flavor (Sonar presently) and indicate Code Quality Scan
   Sonar Code Quality Scan:
     docker: *image
     steps:
@@ -163,25 +163,25 @@ jobs:
 # 2) a master/release centric flow for vetting the overall changes headed out for public release
 workflows:
   version: 2.1
-  # Defines a workflow for a repo that only produces an non-container artifact
+# Defines a workflow for a repo that only produces an non-container artifact
   Ion Artifact Pipeline:
     jobs: # List what specific defined jobs from above are to be run
-      # Job 1a
+# Job 1a
       - Build
-      # Job1b - Intentionally is a dead end as it shouldn't break the build
+# Job1b - Intentionally is a dead end as it shouldn't break the build
       - Sonar Code Quality Scan 
-      # Job 2a
+# Job 2a
       - Unit Testing:
           requires:
             - Build
           filters:
             branches:
               ignore: master
-      # Job 2b - Expected that Dependency Scan is faster than Testing Phase
+# Job 2b - Expected that Dependency Scan is faster than Testing Phase
       - Dependency Scan:
           requires:
             - Build
-      # Job 3a
+# Job 3a
       - Contract Testing:
           requires:
             - Dependency Scan
@@ -189,7 +189,7 @@ workflows:
           filters:
             branches:
               only: master
-      #Job 3b
+#Job 3b
       - Integration Testing:
           requires:
             - Dependency Scan
@@ -197,7 +197,7 @@ workflows:
           filters:
             branches:
               only: master
-      # Job 4a
+# Job 4a
       - Tag Release:
           requires:
             - Contract Testing
@@ -205,7 +205,7 @@ workflows:
           filters:
             branches:
               only: master
-      # Job 4b
+# Job 4b
       - Deploy Artifacts:
           requires:
             - Tag Release
