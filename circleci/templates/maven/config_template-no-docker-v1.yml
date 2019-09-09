@@ -18,7 +18,7 @@ orbs:
   snyk: snyk/snyk@0.0.8
 
 jobs:
-# Execute compilation and library linkage as first step
+  # Execute compilation and library linkage as first step
   Build:
     docker: &image # The '&image' setups up a reference tag to be used by '*image' (see unit tests)
       - image: circleci/openjdk:11-jdk
@@ -29,12 +29,19 @@ jobs:
           command: |
             echo "export DISABLE_DOWNLOAD_PROGRESS_OPTS=-Dorg.slf4j.simpleLogger.log.org.apache.maven.cli.transfer.Slf4jMavenTransferListener=warn" >> $BASH_ENV
             source $BASH_ENV
-      - checkout #built in GitHub repo checkout
+      - checkout # Built in GitHub repo checkout
       - run:
+          # Build code only if there is no release for this commit, otherwise update versions and prepare release
           name: Maven install without tests
           command: |
-            mvn install -B -DskipTests $DISABLE_DOWNLOAD_PROGRESS_OPTS
-# Execute unit tests separate from other executions to track performance
+            if [ $RELEASE = true ]
+            then
+              mvn -B -Dtag=${RELEASE_TAG} -DreleaseVersion=${RELEASE_VERSION} -DdevelopmentVersion=${NEXT_VERSION} -Dgpg.secretKeyring=${ION_GPG_KEYRING} -Dgpg.publicKeyring=${ION_GPG_KEYRING} release:prepare
+            fi
+            if [ $RELEASE != true ]
+              mvn install -B -DskipTests $DISABLE_DOWNLOAD_PROGRESS_OPTS
+            fi
+  # Execute unit tests separate from other executions to track performance
   Unit Testing:
     docker: *image
     steps:
@@ -44,7 +51,7 @@ jobs:
           name: Maven test phase
           command: |
             mvn test -B $DISABLE_DOWNLOAD_PROGRESS_OPTS
-# Security-Dependency Scanning
+  # Security-Dependency Scanning
   Dependency Scan:
     docker: *image
     steps:
@@ -54,7 +61,7 @@ jobs:
           monitor-on-build: false
           severity-threshold: high # Set the failure threshold to high
           token-variable: SNYK_TOKEN #This Token is an environment variable -- API Token from Snyk
-# Quality-Code Scanning -- Call out what flavor (Sonar presently) and indicate Code Quality Scan
+  # Quality-Code Scanning -- Call out what flavor (Sonar presently) and indicate Code Quality Scan
   Sonar Code Quality Scan:
     docker: *image
     steps:
@@ -109,38 +116,72 @@ jobs:
       - image: circleci/ruby:2.4.1
     steps:
       - run: echo "*PLACEHOLDER* pretending to execute integration testing phase!"
-  Deploy Artifacts: # Deploy artifacts to Nexus or Maven Central
-    docker:
-      - image: circleci/ruby:2.4.1
-    steps:
-      - run: echo "*PLACEHOLDER* pretending to deploy build artifacts to Maven Central!"
 # END: UNDER CONSTRUCTION AREA ---------------------------------------
 
+  Tag Release:
+    docker: *image
+    steps:
+      # Tag Release creates a Git tag with given a given name and pushes it
+      # This job is governed by the following environment variables:
+      # $RELEASE - Set to true to perform a release, otherwise this step is skipped
+      # $RELEASE_TAG - The release tag for this version
+      # $RELEASE_VERSION - The version to release
+      # $NEXT_VERSION - The next development version
+      # To use this step the following MUST also be set: $GITHUB_KEY and $ION_GPG_KEYRING
+      - checkout
+      - run:
+          name: Tag Release
+          command: |
+            if [ $RELEASE = true ]
+            then
+              git checkout $CIRCLE_SHA1
+              git remote add ssh-origin git@github.com:connexta/$CIRCLE_PROJECT_REPONAME.git
+              echo ssh -i ${GITHUB_KEY} -l git -o StrictHostKeyChecking=no \\"\\$@\\" > run_ssh.sh
+              chmod +x run_ssh.sh
+              git push ssh-origin HEAD:$CIRCLE_BRANCH && git push ssh-origin $RELEASE_TAG
+            fi
+  Deploy Artifacts: # Deploy artifacts to Nexus or Maven Central
+    docker: *image
+    steps:
+      # Deploy Artifacts uses the Maven Deploy plugin and it's configuration from the pom.xml to deploy an artifact
+      # This job is governed by the following environment variables:
+      # $RELEASE - Set to true to perform a release, otherwise this step is skipped
+      # To use this step the following MUST also be set: $GITHUB_KEY and $ION_GPG_KEYRING
+      - run: *env
+      - checkout
+      - run:
+          name: Tag Release
+          command: |
+            if [ $RELEASE = true ]
+            then
+              mvn javadoc:aggregate -B -DskipTests -nsu $DISABLE_DOWNLOAD_PROGRESS_OPTS
+              mvn deploy -B -DskipTests -DretryFailedDeploymentCount=10 -nsu $DISABLE_DOWNLOAD_PROGRESS_OPTS -Dgpg.secretKeyring=$ION_GPG_KEYRING -Dgpg.publicKeyring=$ION_GPG_KEYRING -Dgpg.passphraseServerId=\"ion-signing\"
+            fi
 
 # There should be a minimum of 2 control flows:
 # 1) a feature branch/PR centric flow for vetting through the CICD pipeline incremental changes
 # 2) a master/release centric flow for vetting the overall changes headed out for public release
 workflows:
   version: 2.1
-# Defines a workflow for a repo that only produces an non-container artifact
+  # Defines a workflow for a repo that only produces an non-container artifact
   Ion Artifact Pipeline:
     jobs: # List what specific defined jobs from above are to be run
-#Job 1a
+      # Job 1a
       - Build
-#Job1b - Intentionally is a dead end as it shouldn't break the build
+      # Job1b - Intentionally is a dead end as it shouldn't break the build
       - Sonar Code Quality Scan 
-#Job 2a
+      # Job 2a
       - Unit Testing:
           requires:
             - Build
           filters:
             branches:
               ignore: master
-#Job 2b - Expected that Dependency Scan is faster than Testing Phase
- - Dependency Scan:
+      # Job 2b - Expected that Dependency Scan is faster than Testing Phase
+      - Dependency Scan:
           requires:
             - Build
-# Job 3a
+      # Job 3a
       - Contract Testing:
           requires:
             - Dependency Scan
@@ -148,7 +189,7 @@ workflows:
           filters:
             branches:
               only: master
-#Job 3b
+      #Job 3b
       - Integration Testing:
           requires:
             - Dependency Scan
@@ -156,11 +197,18 @@ workflows:
           filters:
             branches:
               only: master
-# Job 4
-      - Deploy Artifacts:
+      # Job 4a
+      - Tag Release:
           requires:
             - Contract Testing
             - Integration Testing
+          filters:
+            branches:
+              only: master
+      # Job 4b
+      - Deploy Artifacts:
+          requires:
+            - Tag Release
           filters:
             branches:
               only: master
