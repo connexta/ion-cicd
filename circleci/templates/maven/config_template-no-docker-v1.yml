@@ -145,7 +145,7 @@ jobs:
       - run: *env
       - checkout
       - run:
-          name: Tag Release
+          name: Deploy Artifacts
           command: |
             if [ $RELEASE = true ]
             then
