@@ -121,8 +121,11 @@ jobs:
     docker: *image
     steps:
       # Tag Release uses the Maven Deploy plugin to create a git tag with given name and push it to the repo
-      # Note: This will require a deploy key be set up in CircleCI Settings -> Checkout SSH Keys
-      # Also be sure to reference the environment variables section for configuration information
+      # Notes:
+      #  - This will require a deploy key be set up in CircleCI Settings -> Checkout SSH Keys
+      #  - Be sure to reference the environment variables section for configuration information to ensure proper use
+      #  - Passing the GPG passphrase in -Darguments ensures the GPG plugin has what it needs from the Deploy plugin
+      #  - Prefixing the deploy plugins commit message with "[skip ci]" avoids a loop of commits when the plugin pushes pom changes
       - checkout
       - run:
           name: Tag Release
@@ -139,8 +142,9 @@ jobs:
     docker: *image
     steps:
       # Deploy Artifacts uses the Maven Deploy plugin and it's configuration from the pom.xml to deploy an artifact
-      # Note: This will require a deploy key be set up in CircleCI Settings -> Checkout SSH Keys
-      # Also be sure to reference the environment variables section for configuration information
+      # Note:
+      #  - This will require a deploy key be set up in CircleCI Settings -> Checkout SSH Keys
+      #  - Be sure to reference the environment variables section for configuration information to ensure proper use
       - run: *env
       - checkout
       - run:
