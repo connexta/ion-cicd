@@ -5,11 +5,16 @@
 # -> Build Artifacts: binaries
 #
 #
-# CICD Configuration Version: 0.2
+# CICD Configuration Version: 0.3
 #
 # Expected external configurations (Environment variables)
 # - PIPELINE_SONAR_TOKEN: The authentication token required by SonarCloud to upload reports
 # - SNYK_TOKEN: The authentication token required by Snyk to upload reports and execute certain scans
+# - RELEASE: Boolean indicating whether there should be a release for this commit
+# - RELEASE_TAG: The release tag for this version (only relevant if RELEASE = true)
+# - RELEASE_VERSION: The version to release (only relevant if RELEASE = true)
+# - NEXT_VERSION: The next development version (only relevant if RELEASE = true)
+# - GPG_PASSPHRASE: The GPG phrase for signing the released artifacts (only relevant if RELEASE = true)
 
 version: 2.1 # CircleCI API version
 
@@ -29,7 +34,7 @@ jobs:
           command: |
             echo "export DISABLE_DOWNLOAD_PROGRESS_OPTS=-Dorg.slf4j.simpleLogger.log.org.apache.maven.cli.transfer.Slf4jMavenTransferListener=warn" >> $BASH_ENV
             source $BASH_ENV
-      - checkout #built in GitHub repo checkout
+      - checkout # Built in GitHub repo checkout
       - run:
           name: Maven install without tests
           command: |
@@ -109,13 +114,43 @@ jobs:
       - image: circleci/ruby:2.4.1
     steps:
       - run: echo "*PLACEHOLDER* pretending to execute integration testing phase!"
-  Deploy Artifacts: # Deploy artifacts to Nexus or Maven Central
-    docker:
-      - image: circleci/ruby:2.4.1
-    steps:
-      - run: echo "*PLACEHOLDER* pretending to deploy build artifacts to Maven Central!"
 # END: UNDER CONSTRUCTION AREA ---------------------------------------
 
+# Prepares a release and tag from current commit
+  Tag Release:
+    docker: *image
+    steps:
+      # Tag Release uses the Maven Deploy plugin to create a git tag with given name and push it to the repo
+      # Note: This will require a deploy key be set up in CircleCI Settings -> Checkout SSH Keys
+      # Also be sure to reference the environment variables section for configuration information
+      - checkout
+      - run:
+          name: Tag Release
+          command: |
+            if [ $RELEASE = true ]
+            then
+              git config --global user.email "circleci@circleci.com"
+              git config --global user.name "CircleCI"
+              mvn -B -Dtag=${RELEASE_TAG} -DreleaseVersion=${RELEASE_VERSION} -DdevelopmentVersion=${NEXT_VERSION} -Darguments=-Dgpg.passphrase=${GPG_PASSPHRASE} -DscmCommentPrefix="[skip ci]" release:prepare
+            fi
+
+# Deploy artifacts to location specified in the poms distributionManagement tag
+  Deploy Artifacts:
+    docker: *image
+    steps:
+      # Deploy Artifacts uses the Maven Deploy plugin and it's configuration from the pom.xml to deploy an artifact
+      # Note: This will require a deploy key be set up in CircleCI Settings -> Checkout SSH Keys
+      # Also be sure to reference the environment variables section for configuration information
+      - run: *env
+      - checkout
+      - run:
+          name: Deploy Artifacts
+          command: |
+            if [ $RELEASE = true ]
+            then
+              mvn javadoc:aggregate -B -DskipTests -nsu $DISABLE_DOWNLOAD_PROGRESS_OPTS
+              mvn deploy -B -DskipTests -DretryFailedDeploymentCount=10 -nsu $DISABLE_DOWNLOAD_PROGRESS_OPTS
+            fi
 
 # There should be a minimum of 2 control flows:
 # 1) a feature branch/PR centric flow for vetting through the CICD pipeline incremental changes
@@ -125,19 +160,19 @@ workflows:
 # Defines a workflow for a repo that only produces an non-container artifact
   Ion Artifact Pipeline:
     jobs: # List what specific defined jobs from above are to be run
-#Job 1a
+# Job 1a
       - Build
-#Job1b - Intentionally is a dead end as it shouldn't break the build
+# Job1b - Intentionally is a dead end as it shouldn't break the build
       - Sonar Code Quality Scan 
-#Job 2a
+# Job 2a
       - Unit Testing:
           requires:
             - Build
           filters:
             branches:
               ignore: master
-#Job 2b - Expected that Dependency Scan is faster than Testing Phase
- - Dependency Scan:
+# Job 2b - Expected that Dependency Scan is faster than Testing Phase
+      - Dependency Scan:
           requires:
             - Build
 # Job 3a
@@ -156,11 +191,18 @@ workflows:
           filters:
             branches:
               only: master
-# Job 4
-      - Deploy Artifacts:
+# Job 4a
+      - Tag Release:
           requires:
             - Contract Testing
             - Integration Testing
+          filters:
+            branches:
+              only: master
+# Job 4b
+      - Deploy Artifacts:
+          requires:
+            - Tag Release
           filters:
             branches:
               only: master
