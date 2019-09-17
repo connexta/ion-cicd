@@ -16,18 +16,18 @@ jobs: #Defines the overall Jobs for this particular pipeline to be used in workf
             source $BASH_ENV
       - checkout
       - run:
-          name: Maven install without tests
+          name: Gradle install without tests
           command: |
-            ./gradlew install -B -DskipTests $DISABLE_DOWNLOAD_PROGRESS_OPTS
+            ./gradlew clean build --info
   Unit Testing: # Execute unit tests separate from other executions to track performance
     docker: *image
     steps:
       - run: *env
       - checkout
       - run:
-          name: Maven test phase
+          name: Gradle test phase
           command: |
-            ./gradlew test -B $DISABLE_DOWNLOAD_PROGRESS_OPTS
+            ./gradlew test --info
   Dependency Scan: # Security-Dependency Scanning
     docker: *image
     steps:
@@ -85,7 +85,7 @@ jobs: #Defines the overall Jobs for this particular pipeline to be used in workf
           name: Scanning
           command: |
             echo $SONAR_PARAMS;
-            ./gradlew verify sonar:sonar \
+            ./gradlew sonarqube \
             -Dsonar.projectKey=${CIRCLE_PROJECT_REPONAME} \
             -Dsonar.organization=cx \
             -Dsonar.host.url=https://sonarcloud.io \
