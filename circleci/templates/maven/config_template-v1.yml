@@ -52,6 +52,7 @@ jobs:
       - run:
           name: Move results
           # Create a results directory that CircleCI will scan, and move XML created by the Surefire plugin into it
+          # Can make additional directories for other flavors of test results (refer to CircleCI doc 'Collecting Test Metadata')
           command: |
             mkdir -p ~/test-results/junit/
             find . -type f -regex ".*/build/test-results/.*xml" -exec cp {} ~/test-results/junit/ \;
