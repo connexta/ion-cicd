@@ -50,12 +50,16 @@ jobs:
           command: |
             mvn test -B $DISABLE_DOWNLOAD_PROGRESS_OPTS
       - run:
+          name: Move results
+          # Create a results directory that CircleCI will scan, and move XML created by the Surefire plugin into it
           command: |
             mkdir -p ~/test-results/junit/
             find . -type f -regex ".*/build/test-results/.*xml" -exec cp {} ~/test-results/junit/ \;
           when: always
+      # Set results directory to our newly created dir
       - store_test_results:
           path: ~/test-results
+      # Specify subdirectory for junit results (can add other flavors)
       - store_artifacts:
           path: ~/test-results/junit
 # Security-Dependency Scanning
