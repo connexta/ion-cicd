@@ -1,159 +1,158 @@
-#Base CircleCI template for Gradle projects.
-#Defined below are steps for building, OWasp, and Sonar
+# This configuration pipeline is meant to outline structure and naming standards
+# Author: Jonathan Fontaine
+version: 2.1 #CircleCI API Version
+orbs:
+  snyk: snyk/snyk@0.0.8
 
-version: 2.1
-jobs:
-  incremental_build:
-    docker: &image
+jobs: #Defines the overall Jobs for this particular pipeline to be used in workflows or as isolated jobs
+  Build: # Execute compilation and library linkage as first step
+    docker: &image # The '&image' setups up a reference tag to be used by '*image' (see unit tests)
       - image: circleci/openjdk:11-jdk
     steps:
-      #This sets some environment variables. Some could be moved into a CircleCI context.
-      - run: &env
+      - run: &env # does the same as '&image' above and see usage below in unit tests
           name: Setting environment
           command: |
-            echo "export RELEASE=0" >> $BASH_ENV
-            echo "export RELEASE_VERSION=NA" >> $BASH_ENV
-            echo "export RELEASE_TAG=NA" >> $BASH_ENV
-            echo "export NEXT_VERSION=NA" >> $BASH_ENV
-
-            echo "export ION_GPG_KEYRING=$ION_RELEASE_KEY" >> $BASH_ENV
             echo "export DISABLE_DOWNLOAD_PROGRESS_OPTS=-Dorg.slf4j.simpleLogger.log.org.apache.maven.cli.transfer.Slf4jMavenTransferListener=warn" >> $BASH_ENV
-            echo "export LINUX_MVN_RANDOM=-Djava.security.egd=file:/dev/./urandom" >> $BASH_ENV
-            echo "export COVERAGE_EXCLUSIONS=**/test/**/*,**/itests/**/*,**/*Test*,**/sdk/**/*,**/*.js,**/node_modules/**/*,**/jaxb/**/*,**/wsdl/**/*,**/nces/sws/**/*,**/*.adoc,**/*.txt,**/*.xml" >> $BASH_ENV
-            echo "export GITHUB_USERNAME=connexta" >> $BASH_ENV
-            echo "export GITHUB_REPONAME=multi-int-store" >> $BASH_ENV
-            echo "export GITHUB_KEY=multi-int-store-github-key" >> $BASH_ENV
-            echo "export ORG_GRADLE_PROJECT_dependencyCheckUrlModified='http://10.101.190.7:10179/nvdcve-1.0-modified.json.gz'" >> $BASH_ENV
-            echo "export ORG_GRADLE_PROJECT_dependencyCheckUrlBase='http://10.101.190.7:10179/nvdcve-1.0-%d.json.gz'" >> $BASH_ENV
             source $BASH_ENV
       - checkout
       - run:
-          name: Building
+          name: Gradle install without tests
           command: |
-            ./gradlew build --info
-      - run:
-          name: Save test results
-          command: |
-            mkdir -p ~/test-results/junit/
-            find . -type f -regex ".*/target/surefire-reports/.*xml" -exec cp {} ~/test-results/junit/ \;
-          when: always
-      - store_test_results:
-          path: ~/test-results
-      - store_artifacts:
-          path: ~/test-results/junit
-  build:
+            ./gradlew assemble --info
+  Unit Testing: # Execute unit tests separate from other executions to track performance
     docker: *image
     steps:
       - run: *env
       - checkout
       - run:
-          name: Building
+          name: Gradle test phase
           command: |
-            ./gradlew clean build
-      - run:
-          name: Save test results
-          command: |
-            mkdir -p ~/test-results/junit/
-            find . -type f -regex ".*/target/surefire-reports/.*xml" -exec cp {} ~/test-results/junit/ \;
-          when: always
-      - store_test_results:
-          path: ~/test-results
-      - store_artifacts:
-          path: ~/test-results/junit
-  #Runs OWASP on build
-  owasp:
+            ./gradlew test --info
+  Dependency Scan: # Security-Dependency Scanning
     docker: *image
     steps:
-      - run: *env
       - checkout
-      - run:
-          name: Owasp Tests
-          command: |
-            ./gradlew dependencyCheckAnalyze --info
-  #Runs SonarQube on build
-  sonar:
+      - snyk/scan:
+          fail-on-issues: true # Fail if we discover any issues/vulnerabilities
+          monitor-on-build: false
+          severity-threshold: high # Set the failure threshold to high
+          token-variable: SNYK_TOKEN #This Token is an environment variable -- API Token from Snyk
+  Container Scan: # Security-Container Scanning
+    docker:
+      - image: circleci/ruby:2.4.1
+    steps:
+      - checkout
+      - run: echo "Scanning Container via Anchore"
+  Docker Image Build: # Build-Container Image -- Call out what flavor (likely always Docker) and indicate this is the Build of said container/image
+    docker:
+      - image: circleci/ruby:2.4.1
+    steps:
+      - checkout
+      - run: echo "Building Docker Image"
+  Sonar Code Quality Scan: # Quality-Code Scanning -- Call out what flavor (Sonar presently) and indicate Code Quality Scan
     docker: *image
     steps:
-      - run: *env
-      - checkout
+    # PR Analysis cannot have branch.target parameter
+    # PR Analysis requires "pullrequest.provider" & "pullrequest.github.reposotiry" to fire decorators back to GitHub
+    # CircleCI limit:  no organization name for easier pointing to github.repository value
       - run:
-          name: Sonar check
+          name: Determining Sonar and Branch Configuration
           command: |
-            if [ $CIRCLE_BRANCH = master ]
-            then
-              if [ $RELEASE = true ]
+              SONAR_PARAMS='';
+              if [[ ! -z $CIRCLE_PULL_REQUEST ]];
               then
-                ./gradlew sonarqube -Dsonar.host.url=https://sonarcloud.io -Dsonar.login=$SONAR_TOKEN -Dsonar.organization=cx -Dsonar.projectKey=multi-int-store
+                SONAR_PARAMS="${SONAR_PARAMS} \
+                -Dsonar.pullrequest.key=${CIRCLE_PULL_REQUEST##*/} \
+                -Dsonar.pullrequest.base=master \
+                -Dsonar.pullrequest.branch=${CIRCLE_BRANCH} \
+                -Dsonar.pullrequest.provider=GitHub
+                -Dsonar.pullrequest.github.repository=connexta/${CIRCLE_PROJECT_REPONAME}"
               fi
-            fi
-  release_tag:
-    docker: *image
-    steps:
-      - run: *env
+              if [[ ${CIRCLE_BRANCH} != 'master' && -z $CIRCLE_PULL_REQUEST ]];
+              then
+                SONAR_PARAMS="${SONAR_PARAMS} \
+                -Dsonar.branch.target=master \
+                -Dsonar.branch.name=${CIRCLE_BRANCH}"
+              fi
+              echo "export SONAR_PARAMS='${SONAR_PARAMS}'" >> $BASH_ENV
+              source $BASH_ENV
       - checkout
+        # sonar.pullrequest.base should be your default branch but may not be "master"
+        # sonar.login is the API token we can use and here is configured for a CircleCI Env Variable
+        # sonar.organization "cx" is the Connexta Organization
+        # CircleCI Env. Variable CIRCLE_PULL_REQUEST only works for "forked" repos
       - run:
-          name: Release Tag
+          name: Scanning
           command: |
-            if [ $RELEASE = true ]
-            then
-              git checkout $RELEASE_COMMIT
-              git remote add ssh-origin git@github.com:connexta/$CIRCLE_PROJECT_REPONAME.git
-              echo ssh -i $GITHUB_KEY -l git -o StrictHostKeyChecking=no \\"\\$@\\" > run_ssh.sh
-              chmod +x run_ssh.sh
-              git push ssh-origin HEAD:$CIRCLE_BRANCH && git push ssh-origin $RELEASE_TAG
-            fi
-  deploy:
-    docker: *image
+            echo $SONAR_PARAMS;
+            ./gradlew sonarqube \
+            -Dsonar.projectKey=${CIRCLE_PROJECT_REPONAME} \
+            -Dsonar.organization=cx \
+            -Dsonar.host.url=https://sonarcloud.io \
+            -Dsonar.login=${PIPELINE_SONAR_TOKEN} \
+            $SONAR_PARAMS;
+  Contract Testing: # Testing-Contract
+    docker:
+      - image: circleci/ruby:2.4.1
     steps:
-      - run: *env
       - checkout
-      - run:
-          name: Deploy
-          command: |
-            if [ $RELEASE = true ]
-            then
-              git checkout $RELEASE_TAG
-            fi
-            ./gradlew javadoc:aggregate -B -DskipTests -nsu $DISABLE_DOWNLOAD_PROGRESS_OPTS
-            if [ $RELEASE = true]
-            then
-              ./gradlew deploy -B -DskipTests -DretryFailedDeploymentCount=10 -nsu $DISABLE_DOWNLOAD_PROGRESS_OPTS -Dgpg.secretKeyring=$ION_GPG_KEYRING -Dgpg.publicKeyring=$ION_GPG_KEYRING -Dgpg.passphraseServerId=\"ion-signing\"
-            else
-              ./gradlew deploy -B -DskipTests -DretryFailedDeploymentCount=10 -nsu $DISABLE_DOWNLOAD_PROGRESS_OPTS
-            fi
+      - run: echo "Running Contract Tests"
+  Integration Testing: # Testing-Integration
+    docker:
+      - image: circleci/ruby:2.4.1
+    steps:
+      - checkout
+      - run: echo "Running Integration Tests"
+  Deploy Artifacts: # Deploy artifacts to Nexus or Maven Central
+    docker:
+      - image: circleci/ruby:2.4.1
+    steps:
+      - checkout
+      - run: echo "Deploying artifacts"
+
+# There should be a minimum of 2 workflows:
+# 1) a PR workflow for vetting through the CICD pipeline PR changes
+# 2) a master workflow for vetting the overall changes out to the public via CICD pipeline
 workflows:
-  version: 2.1
-  default:
-    triggers:
-      filters:
-        branches:
-          ignore:
-            - master
-    jobs:
-      - incremental_build
-      - owasp:
+  version: 2.1 #Version indicates which CircleCI language version is in use
+  Ion Pipeline: # Defines a workflow "PR Workflow" to show up in UI
+    jobs: # List what specific defined jobs from above are to be run
+      - Build #Job 1a
+      - Sonar Code Quality Scan #Job1b -- This intentionally is a dead end as it shouldn't break the build
+      - Unit Testing: #Job 2a
           requires:
-            - incremental_build
-      - sonar:
+            - Build
+          filters:
+            branches:
+              ignore: master
+      - Dependency Scan: #Job 2b
           requires:
-            - owasp
-      - release_tag:
+            - Build
+      - Docker Image Build: #Job 3
           requires:
-            - sonar
-  master:
-    triggers:
-      filters:
-        branches:
-          only:
-            - master
-    jobs:
-      - build
-      - owasp:
+            - Build
+            - Unit Testing
+            - Dependency Scan
+      - Container Scan: # Job 4a
           requires:
-            - build
-      - sonar:
+            - Docker Image Build
+      - Contract Testing: # Job 4b
           requires:
-            - owasp
-      - release_tag:
+            - Docker Image Build
+          filters:
+            branches:
+              only: master
+      - Integration Testing: #Job 4c
           requires:
-            - sonar
+            - Docker Image Build
+          filters:
+            branches:
+              only: master
+      - Deploy Artifacts: # Job 5
+          requires:
+            - Container Scan
+            - Contract Testing
+            - Integration Testing
+          filters:
+            branches:
+              only: master
